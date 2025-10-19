@@ -1,0 +1,2 @@
+# requirements.txt
+# (no external packages required for now)
