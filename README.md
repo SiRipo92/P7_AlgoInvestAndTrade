@@ -108,7 +108,6 @@ AlgoInvestAndTrade/
 │  └─ Actions.csv
 ├─ bruteforce.py
 ├─ optimized.py
-├─ utils.py
 ├─ README.md
 └─ requirements.txt
 ```
