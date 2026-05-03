@@ -1,4 +1,5 @@
 import csv
+import numpy as np
 import sys
 import time
 
@@ -47,6 +48,10 @@ def read_actions(file_path):
             # Step 6: Compute profit in euros
             profit = cost * benefit
 
+            # Small fix : Skip stocks with negligible profit (less than 1 centime)
+            if profit < 0.01:
+                continue
+
             # Step 7: Append dict {name, cost, benefit, profit} to actions
             actions.append({
                 "name": row[name_key],
@@ -65,39 +70,32 @@ def find_best_investment(actions, budget_euros):
     Each stock can be selected at most once.
     Returns (selected_actions, total_profit)
     """
-    # Step 1 : Convert costs to centimes for whole integers to use for array indices
+    # Step 1: Convert budget to centimes for integer array indices
     budget_centimes = int(budget_euros * 100)
     num_actions = len(actions)
 
-    # Step 2 : Build table (num_actions+1) rows x (budget_centimes+1) columns, all zeros
+    # Step 2 :  Build table (num_actions+1) rows x (budget_centimes+1) columns, all zeros
     # This is the dynamic programming
-    table = [[0.0] * (budget_centimes + 1) for _ in range(num_actions + 1)]
+    table = np.zeros((num_actions + 1, budget_centimes + 1))
 
     # Step 3 : Fill the table row by row
-    # Outer loop picks the stock
-    # For each stock (row index from 1 to num_actions):
     for i in range(1, num_actions + 1):
         # Get its cost in centimes and its profit
         cost_centimes = int(actions[i-1]["cost"] * 100)
         profit = actions[i-1]["profit"]
+        # Start this row as a copy of the row above (default: skip this stock)
+        table[i] = table[i-1].copy()
 
-        # For each possible budget from 0 to budget_centimes:
-        #       Option A (skip this stock): value from the row above, same budget
-        #       Option B (buy this stock): only possible if cost fits in current budget
-        #                                   -> profit + value from row above at (budget - cost)
-        #       Store whichever option is higher in table[stock][budget]
-        for current_budget in range(budget_centimes + 1):
-            # Inner loop asks "at every possible budget, is it etter to buy or skip this stock?"
-            if cost_centimes <= current_budget:
-                # Option A vs Option B -- take the best
-                table[i][current_budget] = max(
-                    # i - 1 always looks at the previous row  - the best answer without this stock
-                    table[i - 1][current_budget],
-                    table[i - 1][current_budget - cost_centimes] + profit
-                )
-            else:
-                # Stock is too expensive at this budget -- skip
-                table[i][current_budget] = table[i - 1][current_budget]
+        # For every budget slot where this stock fits (cost_centimes and above),
+        # compare skipping vs buying and keep the better value.
+        # table[i-1, cost_centimes:] = "skip" values for those slots
+        # table[i-1, :budget_centimes+1-cost_centimes] = "skip" values shifted left by cost
+        # The ':' slices select all matching columns at once — numpy does this in one operation
+        # instead of looping over each column individually (replaces the inner for loop
+        table[i, cost_centimes:] = np.maximum(
+            table[i-1, cost_centimes:],
+            table[i-1, :budget_centimes + 1 - cost_centimes] + profit
+        )
 
     # Step 4: Backtrack — walk backwards through the table to find which stocks were chosen
     selected = []
