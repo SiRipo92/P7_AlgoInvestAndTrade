@@ -10,8 +10,11 @@ def read_actions(file_path):
     Skips rows with invalid cost or profit values.
     Returns a list of dicts: {name, cost, benefit, profit}.
     """
-    # Step 1: Initialize actions as an empty list
+    # Step 1: Initialize actions list and exploration counters
     actions = []
+    total_rows = 0
+    dropped_invalid = 0
+    dropped_negligible = 0
 
     # Step 2: Open the CSV file with DictReader
     with open(file_path, newline='') as csv_file:
@@ -31,6 +34,8 @@ def read_actions(file_path):
             profit_key = "Bénéfice (après 2 ans)"
 
         for row in csv_reader:
+            total_rows += 1
+
             # Step 4: For each row, extract cost and benefit using the correct keys
             cost = float(row[cost_key].replace(",", "."))
             # In Dataset, profit/benefit is already a float, not a percentage string with %
@@ -40,16 +45,17 @@ def read_actions(file_path):
             else:
                 benefit = float(raw_profit) / 100
 
-
-            # Step 5: Skip rows where cost <= 0 or profit <= 0
+            # Step 5: Skip rows where cost <= 0 or benefit <= 0
             if cost <= 0 or benefit <= 0:
+                dropped_invalid += 1
                 continue
 
             # Step 6: Compute profit in euros
             profit = cost * benefit
 
-            # Small fix : Skip stocks with negligible profit (less than 1 centime)
+            # Step 6b: Skip stocks with negligible profit (less than 1 centime)
             if profit < 0.01:
+                dropped_negligible += 1
                 continue
 
             # Step 7: Append dict {name, cost, benefit, profit} to actions
@@ -59,8 +65,15 @@ def read_actions(file_path):
                 "benefit": benefit,
                 "profit": profit,
             })
-    # Step 8: Return actions
-    return actions
+
+    # Step 8: Return actions and exploration stats
+    stats = {
+        "total": total_rows,
+        "kept": len(actions),
+        "dropped_invalid": dropped_invalid,
+        "dropped_negligible": dropped_negligible,
+    }
+    return actions, stats
 
 
 def find_best_investment(actions, budget_euros):
@@ -127,8 +140,16 @@ def main():
     # Step 3 : Set timer
     start_time = time.time()
 
-    # Step 4 : Call read_actions(file_path) -> store in actions
-    actions = read_actions(file_path)
+    # Step 4 : Call read_actions(file_path) -> store in actions and exploration stats
+    actions, stats = read_actions(file_path)
+
+    # Step 4b : Print data exploration report
+    print(f"=== Rapport d'exploration : {file_path} ===")
+    print(f"  Lignes totales lues        : {stats['total']}")
+    print(f"  Lignes conservées          : {stats['kept']}")
+    print(f"  Supprimées (coût/bénéfice invalide) : {stats['dropped_invalid']}")
+    print(f"  Supprimées (profit négligeable)     : {stats['dropped_negligible']}")
+    print()
 
     # Step 5 : Call find_best_investment(actions, budget) -> store as best_combo, best_profit
     best_combo, best_profit = find_best_investment(actions, budget)
