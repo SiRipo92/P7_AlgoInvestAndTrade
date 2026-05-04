@@ -3,7 +3,7 @@ import numpy as np
 import sys
 import time
 
-def read_actions(file_path):
+def read_actions(file_path: str) -> tuple[list[dict], dict]:
     """
     Read and clean stock data from a CSV file.
     Handles both the French-header format (Actions.csv) and the English-header format (dataset1, dataset2).
@@ -38,9 +38,9 @@ def read_actions(file_path):
 
             # Step 4: For each row, extract cost and benefit using the correct keys
             cost = float(row[cost_key].replace(",", "."))
-            # In Dataset, profit/benefit is already a float, not a percentage string with %
+            # In Dataset, profit/benefit is a plain number string; Actions.csv uses "%"
             raw_profit = row[profit_key]
-            if isinstance(raw_profit, str) and "%" in raw_profit:
+            if "%" in raw_profit:
                 benefit = float(raw_profit.replace("%", "")) / 100
             else:
                 benefit = float(raw_profit) / 100
@@ -76,7 +76,7 @@ def read_actions(file_path):
     return actions, stats
 
 
-def find_best_investment(actions, budget_euros):
+def find_best_investment(actions: list[dict], budget_euros: float) -> tuple[list[dict], float]:
     """
     Find the combination of stocks that maximizes total profit
     without exceeding budget_euros, using dynamic programming table.
@@ -122,10 +122,10 @@ def find_best_investment(actions, budget_euros):
             remaining_budget -= int(actions[stock_index - 1]["cost"] * 100)
 
     # The maximum profit is in the bottom-right corner of the table
-    return selected, table[num_actions][budget_centimes]
+    return selected, float(table[num_actions][budget_centimes])
 
 
-def main():
+def main() -> None:
     """
     Entry point. Reads the CSV path from the command line
     (defaults to data/Actions.csv), runs the optimization, and prints the results.

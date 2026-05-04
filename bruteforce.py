@@ -1,10 +1,11 @@
 import csv
 from itertools import combinations
+import time
 
 
-def read_actions(file_path, budget):
+def read_actions(file_path: str) -> list[dict]:
     """
-    Read the list of actions from CSV file, normalize data and compute max_shares.
+    Read the list of actions from CSV file and normalize data.
     """
     # Step 1: Initialize actions variable as a list
     actions = []
@@ -26,29 +27,16 @@ def read_actions(file_path, budget):
             # Step 6: Compute expected profit in euros (ex. cost * benefit)
             profit = cost * benefit
 
-            # Step 7: Compute how many shares of this action could be bought individually within the budget
-            # (floor division keeps whole numbers since shares cannot be partially bought)
-            max_shares = int(budget // cost)
-
-            # Step 8 : write the rows to a new table in memory
+            # Step 7 : write the rows to a new table in memory
             actions.append({
                 "name": row["Actions #"],
                 "cost": cost,
                 "benefit": benefit,
                 "profit": profit,
-                "max_shares": max_shares
             })
     return actions
 
-def sort_actions_by_profit(actions):
-    """
-    Sort the actions in descending order of expected profit.
-    """
-    sorted_actions_by_profit =  sorted(actions, key=lambda x: x["profit"], reverse=True)
-    return sorted_actions_by_profit
-
-
-def brute_force_selection(actions, budget):
+def brute_force_selection(actions: list[dict], budget: float) -> tuple[list[dict], float]:
     """
     Explore all combinations of actions to find the one that maximizes profit without exceeding the budget.
     """
@@ -77,7 +65,7 @@ def brute_force_selection(actions, budget):
     return best_combo, best_profit
 
 
-def main():
+def main() -> None:
     """
     Sets the actions in order for running the script and handles displays
     """
@@ -85,14 +73,14 @@ def main():
     file_path = "data/Actions.csv"
     budget = 500
 
-    # Step 2: Load and prepare the actions data
-    actions = read_actions(file_path, budget)
+    # Step 2: Start timer
+    start_time = time.time()
 
-    # Step 3: Sort the actions by highest profit and compute the maximum shares
-    sorted_actions = sort_actions_by_profit(actions)
+    # Step 3: Load and prepare the actions data
+    actions = read_actions(file_path)
 
-    # Step 4: Store the sorted list and the maximum number of shares in memory
-    best_combo, best_profit = brute_force_selection(sorted_actions, budget)
+    # Step 4: Find the best combination within the budget
+    best_combo, best_profit = brute_force_selection(actions, budget)
 
     # Display the results
     print("===== Les meilleurs investissements=====")
@@ -102,6 +90,10 @@ def main():
     total_cost = sum(a["cost"] for a in best_combo)
     print(f"\nTotal cost:   {total_cost:.2f}€")
     print(f"\nTotal profit:   {best_profit:.2f}€")
+
+    # Step 5: Stop timer
+    elapsed = time.time() - start_time
+    print(f"Execution time: {elapsed:.4f}s")
 
 if __name__ == "__main__":
     main()
