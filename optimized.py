@@ -6,22 +6,18 @@ import time
 def read_actions(file_path: str) -> tuple[list[dict], dict]:
     """
     Read and clean stock data from a CSV file.
-    Handles both the French-header format (Actions.csv) and the English-header format (dataset1, dataset2).
-    Skips rows with invalid cost or profit values.
-    Returns a list of dicts: {name, cost, benefit, profit}.
+    Handles both French headers (Actions.csv) and English headers (dataset1, dataset2).
+    Skips rows with invalid or negligible values.
+    Returns (actions list, exploration stats).
     """
-    # Step 1: Initialize actions list and exploration counters
+    # Detect header format: French (Actions.csv) vs English (dataset1, dataset2)
     actions = []
     total_rows = 0
     dropped_invalid = 0
     dropped_negligible = 0
 
-    # Step 2: Open the CSV file with DictReader
     with open(file_path, newline='') as csv_file:
         csv_reader = csv.DictReader(csv_file)
-        # Step 3: Detect which format -- check if "name" is in the headers
-        # French headers: keys are "Actions #", "Coût par action (en euros)", "Bénéfice (après 2 ans)"
-        # English headers: keys are "name", "price", "profit"
         if "name" in csv_reader.fieldnames:
             # English format (datasets)
             name_key = "name"
@@ -36,29 +32,28 @@ def read_actions(file_path: str) -> tuple[list[dict], dict]:
         for row in csv_reader:
             total_rows += 1
 
-            # Step 4: For each row, extract cost and benefit using the correct keys
+            # French CSV uses comma as decimal separator; convert to dot for float()
             cost = float(row[cost_key].replace(",", "."))
-            # In Dataset, profit/benefit is a plain number string; Actions.csv uses "%"
+
+            # Actions.csv stores benefit as "5%"; datasets store it as a plain number
             raw_profit = row[profit_key]
             if "%" in raw_profit:
                 benefit = float(raw_profit.replace("%", "")) / 100
             else:
                 benefit = float(raw_profit) / 100
 
-            # Step 5: Skip rows where cost <= 0 or benefit <= 0
+            # Defensive: zero or negative values are invalid data
             if cost <= 0 or benefit <= 0:
                 dropped_invalid += 1
                 continue
 
-            # Step 6: Compute profit in euros
             profit = cost * benefit
 
-            # Step 6b: Skip stocks with negligible profit (less than 1 centime)
+            # Negligible-profit stocks would waste a column in the DP table (hygiene)
             if profit < 0.01:
                 dropped_negligible += 1
                 continue
 
-            # Step 7: Append dict {name, cost, benefit, profit} to actions
             actions.append({
                 "name": row[name_key],
                 "cost": cost,
@@ -66,7 +61,6 @@ def read_actions(file_path: str) -> tuple[list[dict], dict]:
                 "profit": profit,
             })
 
-    # Step 8: Return actions and exploration stats
     stats = {
         "total": total_rows,
         "kept": len(actions),
@@ -78,72 +72,64 @@ def read_actions(file_path: str) -> tuple[list[dict], dict]:
 
 def find_best_investment(actions: list[dict], budget_euros: float) -> tuple[list[dict], float]:
     """
-    Find the combination of stocks that maximizes total profit
-    without exceeding budget_euros, using dynamic programming table.
-    Each stock can be selected at most once.
-    Returns (selected_actions, total_profit)
+    Find the combination of stocks that maximizes total profit without exceeding the budget,
+    using a bottom-up iterative DP table.
+    Each stock can be selected at most once (0/1 Knapsack).
+    Time and space complexity: O(n × W).
+    Returns (selected actions, total profit).
     """
-    # Step 1: Convert budget to centimes for integer array indices
+    # numpy array indices must be integers; convert euros to centimes
     budget_centimes = int(budget_euros * 100)
     num_actions = len(actions)
 
-    # Step 2 :  Build table (num_actions+1) rows x (budget_centimes+1) columns, all zeros
-    # This is the dynamic programming
+    # DP table: extra row 0 = "no stocks considered" base case (all zeros)
+    #           extra column 0 = "zero budget available" base case (all zeros)
     table = np.zeros((num_actions + 1, budget_centimes + 1))
 
-    # Step 3 : Fill the table row by row
+    # Forward fill: row i answers "with stocks 0..i-1 considered, best profit at every budget?"
     for i in range(1, num_actions + 1):
-        # Get its cost in centimes and its profit
+        # i-1 because table row i corresponds to the stock at index i-1
         cost_centimes = int(actions[i-1]["cost"] * 100)
         profit = actions[i-1]["profit"]
-        # Start this row as a copy of the row above (default: skip this stock)
+        # Default: copy the row above (= skip this stock for every budget slot)
         table[i] = table[i-1].copy()
 
-        # For every budget slot where this stock fits (cost_centimes and above),
-        # compare skipping vs buying and keep the better value.
-        # table[i-1, cost_centimes:] = "skip" values for those slots
-        # table[i-1, :budget_centimes+1-cost_centimes] = "skip" values shifted left by cost
-        # The ':' slices select all matching columns at once — numpy does this in one operation
-        # instead of looping over each column individually (replaces the inner for loop
+        # For every budget slot where this stock fits, pick the better of two options:
+        #   skip = the value at this budget in the previous row
+        #   buy  = the value at (this budget − cost) in the previous row, plus this stock's profit
+        # numpy compares all slots in one C-level operation instead of looping column by column.
         table[i, cost_centimes:] = np.maximum(
-            table[i-1, cost_centimes:],
-            table[i-1, :budget_centimes + 1 - cost_centimes] + profit
+            table[i-1, cost_centimes:],  # skip
+            table[i-1, :budget_centimes + 1 - cost_centimes] + profit  # buy
         )
 
-    # Step 4: Backtrack — walk backwards through the table to find which stocks were chosen
+    # Backtracking: walk the filled table backwards to recover which stocks were selected
     selected = []
     remaining_budget = budget_centimes   # start from the full budget and subtract as we go
 
     for stock_index in range(num_actions, 0, -1):
-        # If this row's value differs from the row above, this stock was included
+        # Different from the row above = this stock was selected
         if table[stock_index][remaining_budget] != table[stock_index - 1][remaining_budget]:
             selected.append(actions[stock_index - 1])
-            # Subtract this stock's cost to find what budget was used before it
+            # Move to the column representing the budget BEFORE buying this stock
             remaining_budget -= int(actions[stock_index - 1]["cost"] * 100)
 
-    # The maximum profit is in the bottom-right corner of the table
+    # The maximum profit lives in the bottom-right cell of the filled table
     return selected, float(table[num_actions][budget_centimes])
 
 
 def main() -> None:
     """
     Entry point. Reads the CSV path from the command line
-    (defaults to data/Actions.csv), runs the optimization, and prints the results.
+    (defaults to data/Actions.csv), runs the optimization, and prints results.
     """
-    # Step 1 : Get file path from CLI argument if provided,
-    #          otherwise default to "data/Actions.csv"
     file_path = sys.argv[1] if len(sys.argv) > 1 else "data/Actions.csv"
-
-    # Step 2 : Set budget = 500
     budget = 500
 
-    # Step 3 : Set timer
     start_time = time.time()
-
-    # Step 4 : Call read_actions(file_path) -> store in actions and exploration stats
     actions, stats = read_actions(file_path)
 
-    # Step 4b : Print data exploration report
+    # Data exploration report
     print(f"=== Rapport d'exploration : {file_path} ===")
     print(f"  Lignes totales lues        : {stats['total']}")
     print(f"  Lignes conservées          : {stats['kept']}")
@@ -151,24 +137,16 @@ def main() -> None:
     print(f"  Supprimées (profit négligeable)     : {stats['dropped_negligible']}")
     print()
 
-    # Step 5 : Call find_best_investment(actions, budget) -> store as best_combo, best_profit
     best_combo, best_profit = find_best_investment(actions, budget)
 
-    # Step 6 : Print a header
     print("===== Les meilleurs investissements=====")
-
-    # Step 7 : For each action in best_combo, print its name, cost and profit
     for action in best_combo:
         print(f"  {action['name']} - cost: {action['cost']}€ - profit: {action['profit']:.2f}€")
 
-    # Step 8 : Calculate and print total cost (sum of costs in best_combo)
     total_cost = sum(a["cost"] for a in best_combo)
     print(f"\nTotal cost:   {total_cost:.2f}€")
-
-    # Step 9 : Print total profit (best_profit)
     print(f"\nTotal profit:   {best_profit:.2f}€")
 
-    # Step 10 : Stop timer
     elapsed = time.time() - start_time
     print(f"Execution time: {elapsed:.4f}s")
 
